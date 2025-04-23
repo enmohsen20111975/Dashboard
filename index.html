@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Maintenance Dashboard</title>
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+</head>
+
+<body>
+    <div class="theme-selector">
+        Theme
+        <div class="theme-dropdown">
+            <div class="theme-option" data-theme="light">Light</div>
+            <div class="theme-option" data-theme="dark">Dark</div>
+        </div>
+    </div>
+    <header>
+        <h1>Maintenance Dashboard</h1>
+    </header>
+
+    <section id="data-loading">
+        <button id="load-data">
+            Load Data Folder
+        </button>
+        <button id="inventoryButton" onclick="loadInventory()">
+            Inventory
+        </button>
+        <button id="cmButton" onclick="loadCM()">
+            CM
+        </button>
+        <button id="bdnButton" onclick="loadBDN()">
+            BDN
+        </button>
+    </section>
+
+    <main>
+        <h2>Upload Excel File</h2>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" name="file" id="fileInput">
+            <button type="submit">Upload</button>
+        </form>
+        <div id="message"></div>
+    </main>
+
+    <footer>
+        <div id="data-length">
+            Data length: <span id="sage-length"></span>, <span id="po-length"></span>, <span id="pr-length"></span>,
+            <span id="workordersLength"></span>
+        </div>
+        <div id="developer-info">
+            Application developed by Mohsen Youssef
+        </div>
+    </footer>
+
+    <!-- <section id="kpi-data">
+        <h2>KPI Data</h2>
+        <div id="work-orders-equipment"></div>
+        <div id="work-orders-status"></div>
+        <div id="work-orders-location"></div>
+        <div id="work-orders-cause"></div>
+        <div id="mttr"></div>
+    </section> -->
+
+   
+    <script src="app.js"></script>
+</body>
+</html>

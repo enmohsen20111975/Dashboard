@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Dashboard</title>
+    <link rel="stylesheet" href="../style.css">
+    <link rel="stylesheet" href="inventory.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <h1>Inventory Dashboard</h1>
+        
+        <div class="kpi-container">
+            <div class="kpi-card" id="inv-kpi1">
+                <h3>Total Items</h3>
+                <p>Loading...</p>
+            </div>
+            <div class="kpi-card" id="inv-kpi2">
+                <h3>Workorders</h3>
+                <p>Loading...</p>
+            </div>
+            <div class="kpi-card" id="inv-kpi3">
+                <h3>Annual Consumption</h3>
+                <p>Loading...</p>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="invChart"></canvas>
+        </div>
+
+        <div id="inv-error" class="error-message"></div>
+    </div>
+
+    <script src="inventory.js"></script>
+</body>
+</html>

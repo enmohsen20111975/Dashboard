@@ -1,0 +1,557 @@
+from flask import Flask, send_from_directory, jsonify
+import json
+import os
+import pandas as pd
+from datetime import datetime, timedelta
+import re
+import sqlite3
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+# Database setup
+DATABASE = 'main.DB'
+
+def create_tables():
+    try:
+        print(f"Attempting to connect to database: {DATABASE}")
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        print("Database connection successful")
+
+        # Example table creation (adjust as needed)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS workorders (
+                WO_key TEXT PRIMARY KEY,
+                WO_name TEXT,
+                Description TEXT,
+                ETATJOB TEXT,
+                Jobexec_dt TEXT,
+                Order_date TEXT,
+                Start_dt TEXT,
+                Equipement TEXT,
+                Job_type TEXT,
+                Cost_purpose_key TEXT
+            )
+        ''')
+        print("Table creation/verification successful")
+
+        conn.commit()
+        conn.close()
+        print("Database operations completed successfully")
+    except Exception as e:
+        print(f"Database error: {str(e)}")
+        raise
+
+create_tables()
+
+# Function to read Excel file and update the database
+def update_database(data_file):
+    try:
+        if data_file.filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(data_file)
+        else:  # CSV
+            df = pd.read_csv(data_file)
+        conn = sqlite3.connect(DATABASE)
+        df.to_sql('workorders', conn, if_exists='replace', index=False)  # Replace table content
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error updating database: {e}")
+        return False
+
+# Data Analysis Endpoint
+@app.route('/all_data')
+def get_all_data():
+    try:
+        conn = sqlite3.connect(DATABASE)
+        df = pd.read_sql_query("SELECT * FROM workorders", conn)
+        conn.close()
+        
+        # Clean data - replace NaN/None and ensure proper types
+        df = df.fillna('')
+        for col in df.columns:
+            if df[col].dtype == 'float64':
+                df[col] = df[col].fillna(0).astype(int)
+            elif df[col].dtype == 'object':
+                df[col] = df[col].fillna('').astype(str)
+        
+        data = df.to_dict('records')
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+from flask import request
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'})
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'})
+
+    if file and file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        if update_database(file):
+            return jsonify({'message': 'Database updated successfully'})
+        else:
+            return jsonify({'error': 'Failed to update database'})
+    else:
+        return jsonify({'error': 'Invalid file type'})
+
+def classifyFailure(cause):
+    # Implementation of the 'failure' function in Python
+    d = str(cause or '').strip().upper()
+    
+    failure = cause # Default return value
+    
+    if "TWIN" in d: return "twin"
+    if "TELESC" in d: return "Telescopy"
+    if any(term in d for term in ["NOISE", "DAMAGE", "BRUIT", "ENDOMMA", "VIBRE"]): return "Mech fail"
+    if "AC FAULT" in d: return "A/C"
+    if any(term in d for term in ["SIÃˆGE", "SEAT"]) : return "operator seat"
+    if "CRANE OF" in d: return "Crane off"
+    if any(term in d for term in ["DRIVE OF", "CONTROL OF", "CONTROLE OF", "ALM"]): return "Drive Off"
+    if "POWER" in d: return "Power cut off"
+    
+    if any(term in d for term in ["ROOF", "TTDS", "SPREADER READY"]): return "spreader ready intrlck"
+    if "DOMMAGE" in d: return "Incident_Dommage"
+    if any(term in d for term in ["HOIST BRAKE", "HOIST SERVICE BRAKE"]): return "Hoist service brake"
+    if "HOIST EMERG" in d: return "Hoist Emergency brake"
+    if "HDB" in d or "HEADBLOCK" in d: return "Headblock"
+    if "FESTOON" in d: return "Festoon"
+    if "HOIST SLOW" in d: return "Hoist slowdown"
+    if "AFFICHEUR" in d: return "Display"
+    if "GANTRY DRIVE" in d: return "Gantry drive"
+    if "GANTRY POSITION" in d: return "Gantry position"
+    if "GANTRY WHEEL" in d: return "Gantry wheel brake"
+    if "GANTRY BRAKE" in d: return "Gantry brake"
+    if "GANTRY ENCODER" in d: return "Gantry encoder"
+    if "GANTRY MOTOR" in d: return "Hoist motor"
+    
+    if "TROLLEY DRIVE" in d: return "Trolley drive"
+    if "TROLLEY POSITION" in d: return "Trolley position"
+    if "TROLLEY BRAKE" in d: return "Trolley brake"
+    if "TROLLEY GATE" in d: return "Trolley gate"
+    if "TROLLEY ROPE" in d: return "Trolley rope tension"
+    
+    if "HOIST DRIVE" in d: return "hoist drive"
+    if "HOIST POSITION" in d: return "hoist position"
+    if "HOIST WIRE" in d: return "hoist wire rope"
+    if "HOIST BRAKE" in d: return "Hoist brake"
+    if "HOIST ENCODER" in d: return "Hoist encoder"
+    if "HOIST MOTOR" in d: return "Hoist motor"
+    
+    if "GCR" in d: return "GCR"
+    if "SCR" in d or "SPREADER CABLE REEL" in d: return "SCR"
+    if any(term in d for term in ["BAD STACK", "COINC", "SPREADER BLOQUÃ‰", "SPREADER ACCROCHÃ‰", "STUCK"]): return "Stuck"
+    if any(term in d for term in ["BLINK FAULT", "COMMUNICA", "COMUNICA", "LIGHT BLINK"]): return "Communication"
+    if any(term in d for term in ["BOOM ISSUE", "BOOM FAULT", "BOOM INV"]): return "Boom Drive"
+    if any(term in d for term in ["BOOM LEVEL", "BOOM DOWN", "BOOM UP", "NO BOOM"]): return "Boom position"
+    
+    if "TLS" in d: return "TLS fault"
+    if any(term in d for term in ["CHANGE", "CHANGEMENT"]): return "spreader change"
+    
+    if "JOYSTICK" in d or "JOYSTI" in d: return "Joystick fault"
+    if "CONNECTOR" in d or "PLUG" in d: return "spreader plug"
+    if "FUITE D'HUILE" in d or "OIL LEAK" in d: return "oil leakage"
+    if any(term in d for term in ["DÃ‰VÃ‰RROU", "VÃ‰RROU", "LOCK FAULT", "UNLOCK", "UNLOPK", "LOCKING FAULT"]): return "Lock/unlock"
+    if "FLIPPER" in d: return "Flipper"
+    if "TELESCOP" in d or any(term in d for term in ["TELECO", "TELSCO"]): return "Telescopic"
+    if any(term in d for term in ["LIGHTS", "LIGHT", "LIGHT FAULT", "LIGHT ISSUE", "LIGHT OFF", "LAMPE", "FLOODLIGHT"]): return "Light"
+    
+    if any(term in d for term in ["POMPE SPREADER", "SPREADER PUMP", "PUMP"]): return "spreader pump"
+    
+    return failure
+
+def findSnagLocation(short):
+    # Implementation of the 'SnagLocation' function in JavaScript
+    s = str(short or '').upper()
+    
+    if "SNAG" in s:
+        if "FAULT #0" in s: return "loadCell"
+        if "FAULT #1" in s: return "Cylinder 1"
+        if "FAULT #2" in s: return "Cylinder 2"
+        if "FAULT #3" in s: return "Cylinder 3"
+        if "FAULT #4" in s: return "Cylinder 4"
+        if any(term in s for term in ["FAULT #1 #2", "FAULT #1.#2"]): return "Cylinder 12"
+        if any(term in s for term in ["FAULT #1 #3", "FAULT #1.#3"]): return "Cylinder 13"
+        if any(term in s for term in ["FAULT #1 #4", "FAULT #1.#4"]): return "Cylinder 14"
+        if any(term in s for term in ["FAULT #2 #3", "FAULT #2.#3"]): return "Cylinder 23"
+        if any(term in s for term in ["FAULT #2 #4", "FAULT #2.#4"]): return "Cylinder 24"
+        if any(term in s for term in ["FAULT #3 #4", "FAULT #3.#4"]): return "Cylinder 34"
+        if any(term in s for term in ["FAULT #1 #2 #3", "FAULT #1.#2.#3"]): return "Cylinder 123"
+        if any(term in s for term in ["FAULT #1 #2 #4", "FAULT #1.#2.#4"]): return "Cylinder 124"
+        if any(term in s for term in ["FAULT #2 #3 #4", "FAULT #2.#3.#4"]): return "Cylinder 234"
+        if any(term in s for term in ["FAULT #1 #2 #3 #4", "FAULT #1.#2.#3.#4"]): return "Cylinder 1234"
+    
+    return ""
+
+def formatDate(dateInput):
+    if not dateInput: return 'N/A'
+    try:
+        date = datetime.strptime(dateInput, '%Y-%m-%d %H:%M:%S')
+        return date.strftime('%Y-%m-%d')
+    except (ValueError, TypeError):
+        return 'N/A'
+
+def getMonthFromDate(date):
+    try:
+        d = datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
+        return f"{d.year}-{str(d.month).zfill(2)}"
+    except (ValueError, TypeError):
+        return None
+
+def getQuarterFromDate(date):
+    try:
+        d = datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
+        quarter = (d.month - 1) // 3 + 1
+        return f"{d.year}-Q{quarter}"
+    except (ValueError, TypeError):
+        return None
+
+def getYearFromDate(date):
+    try:
+        d = datetime.strptime(date, '%Y-%m-%d %H:%M:%S')
+        return str(d.year)
+    except (ValueError, TypeError):
+        return None
+
+def parseData(excelDate):
+    if not excelDate: return None
+    
+    # If it's already a datetime object
+    if isinstance(excelDate, datetime):
+        return excelDate if not pd.isna(excelDate) else None
+    
+    # If it's a number (Excel serial date)
+    if isinstance(excelDate, (int, float)):
+        # Excel's epoch starts on 1/1/1900
+        excelEpoch = datetime(1899, 12, 30)
+        millisPerDay = 24 * 60 * 60 * 1000
+        return excelEpoch + timedelta(excelDate)
+    
+    # If it's a string, try parsing it
+    if isinstance(excelDate, str):
+        # Try various formats
+        formats = [
+            # Try ISO format first
+            lambda s: datetime.fromisoformat(s) if s else None,
+            # Try MM/DD/YYYY
+            lambda s: datetime.strptime(s, '%m/%d/%Y') if s else None,
+            # Try DD/MM/YYYY
+            lambda s: datetime.strptime(s, '%d/%m/%Y') if s else None
+        ]
+        
+        # Try each format
+        for format_func in formats:
+            try:
+                date = format_func(excelDate)
+                if date:
+                    return date
+            except (ValueError, TypeError):
+                # Continue to next format
+                pass
+    
+    # If all else fails
+    return None
+
+def Dataprocessing(data):
+    try:
+        # Map and process the data
+        processedData = []
+        for row in data:
+            # Extract values or use defaults
+            woKey = row.get('WO_key', '')
+            woName = row.get('WO_name', '')
+            description = row.get('Description', '')
+            etatJob = str(row.get('ETATJOB', '')).lower()
+            jobexecDt = row.get('Jobexec_dt')
+            orderDate = row.get('Order_date')
+            startDt = row.get('Start_dt')
+            equipement = row.get('Equipement')
+
+            # Combine WO_name and Description for classification
+            combinedDesc = f"{woName} {description}"
+            
+            # Parse dates
+            creationDate = parseData(orderDate or startDt)
+            executionDate = parseData(jobexecDt)
+            
+            # Determine equipment type from WO_key (first 3 characters)
+            equipmentType = 'Other'
+            if isinstance(woKey, str) and len(woKey) >= 3:
+                firstChars = woKey[:3].upper()
+                if firstChars == "STS":
+                    equipmentType = 'STS'
+                elif firstChars == "SPS":
+                    equipmentType = 'Spreader'
+            
+            # Determine status per requirements
+            status = 'Unknown'
+            if etatJob == 'exe':
+                status = 'Ready for Work'
+            elif etatJob == 'apc':
+                status = 'Wait for Spare Parts'
+            elif etatJob == 'ter':
+                status = 'Completed'
+            elif etatJob == 'ini':
+                status = 'Initiated'
+            elif etatJob:
+                status = 'Pending'
+            
+            # Calculate time periods
+            month = None
+            quarter = None
+            year = None
+            
+            if creationDate:
+                month = getMonthFromDate(str(creationDate))
+                quarter = getQuarterFromDate(str(creationDate))
+                year = getYearFromDate(str(creationDate))
+            
+            # Determine breakdown location
+            breakdownLocation = row.get('Location', 'Unknown')
+           
+            
+            # Apply failure and snag location functions
+            failureCause = classifyFailure(combinedDesc)
+            snagLocation = findSnagLocation(combinedDesc)
+            
+            # Get fault type from WO_key (last 3 characters)
+            fault_type = get_fault_type(woKey[-3:]) if woKey and len(woKey) >= 3 else 'Other'
+            
+            processedData.append({
+                **row,
+                'Equipment_Type': equipmentType,
+                'Status': status,
+                'Creation_Date': str(creationDate),
+                'Execution_Date': str(executionDate),
+                'Month': month,
+                'Quarter': quarter,
+                'Year': year,
+                'Breakdown_Location': breakdownLocation,
+                'Failure_Cause': failureCause,
+                'Snag_Location': snagLocation,
+                'Fault_Type': fault_type,
+                'Job_Type': row.get('Job_type', ''),
+                'Cost_Purpose': row.get('Cost_purpose_key', '')
+            })
+        
+        return processedData
+    except Exception as e:
+        print(f"Error processing data: {e}")
+        return None
+
+def applyFilters(processedData, filters):
+    filteredData = processedData
+    
+    # Date range filters
+    if filters.get('startDate'):
+        filteredData = [row for row in filteredData 
+                      if row['Creation_Date'] and row['Creation_Date'] >= filters['startDate']]
+    if filters.get('endDate'):
+        filteredData = [row for row in filteredData 
+                      if row['Creation_Date'] and row['Creation_Date'] <= filters['endDate']]
+    if filters.get('executionStartDate'):
+        filteredData = [row for row in filteredData 
+                      if row['Execution_Date'] and row['Execution_Date'] >= filters['executionStartDate']]
+    if filters.get('executionEndDate'):
+        filteredData = [row for row in filteredData 
+                      if row['Execution_Date'] and row['Execution_Date'] <= filters['executionEndDate']]
+
+    # Equipment type filter
+    if filters.get('equipmentTypes'):
+        filteredData = [row for row in filteredData 
+                       if row['Equipment_Type'] in filters['equipmentTypes']]
+    
+    # Status filter
+    if filters.get('statuses'):
+        filteredData = [row for row in filteredData 
+                       if row['Status'] in filters['statuses']]
+    
+    # Location filter
+    if filters.get('locations'):
+        filteredData = [row for row in filteredData 
+                       if row['Breakdown_Location'] in filters['locations']]
+    
+    # Cause filter
+    if filters.get('causes'):
+        filteredData = [row for row in filteredData 
+                       if row['Failure_Cause'] in filters['causes']]
+    
+    # Time period filter
+    if filters.get('timePeriodType') and filters.get('timePeriods'):
+        timeField = {
+            'month': 'Month',
+            'quarter': 'Quarter', 
+            'year': 'Year'
+        }.get(filters['timePeriodType'])
+        
+        if timeField:
+            filteredData = [row for row in filteredData 
+                          if row[timeField] in filters['timePeriods']]
+
+    # Fault type filter
+    if filters.get('faultTypes'):
+        filteredData = [row for row in filteredData 
+                       if row['Fault_Type'] in filters['faultTypes']]
+    
+    return filteredData
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return send_from_directory('.', 'index.html')
+
+@app.route('/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('.', filename)
+
+@app.route('/api/data/<path:filename>')
+def serve_data(filename):
+    return send_from_directory('Data', filename)
+
+@app.route('/all_data')
+def get_all_data():
+    try:
+        conn = sqlite3.connect(DATABASE)
+        df = pd.read_sql_query("SELECT * FROM workorders", conn)
+        conn.close()
+        
+        # Process data through Dataprocessing function
+        processed_data = Dataprocessing(df.to_dict('records'))
+        if not processed_data:
+            raise ValueError("Data processing failed")
+            
+        return jsonify(processed_data)
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+from flask import request
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'})
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'})
+
+    if file and file.filename.endswith(('.xlsx', '.xls')):
+        if update_database(file):
+            return jsonify({'message': 'Database updated successfully'})
+        else:
+            return jsonify({'error': 'Failed to update database'})
+    else:
+        return jsonify({'error': 'Invalid file type'})
+
+def get_table_lengths():
+    print("get_table_lengths function called")
+    table_lengths = {}
+    try:
+        conn = sqlite3.connect('Data/main.db')
+        cursor = conn.cursor()
+
+        # Get all table names from the database
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+
+        for table in tables:
+            table_name = table[0]
+            cursor.execute("SELECT COUNT(*) FROM '{}'".format(table_name))
+            count = cursor.fetchone()[0]
+            table_lengths[table_name] = count
+
+        conn.close()
+
+        # Get lengths of CSV files
+        try:
+            sage_df = pd.read_csv('Data/sage.csv')
+            table_lengths['sage'] = len(sage_df)
+            po_df = pd.read_csv('Data/po.csv')
+            table_lengths['po'] = len(po_df)
+            pr_df = pd.read_csv('Data/pr.csv')
+            table_lengths['pr'] = len(pr_df)
+            annual_consumption_df = pd.read_csv('Data/Annual Consumption Sep. 2024.csv')
+            table_lengths['Annual Consumption Sep. 2024'] = len(annual_consumption_df)
+            workorders_df = pd.read_csv('Data/Workorders.csv')
+            table_lengths['Workorders'] = len(workorders_df)
+        except Exception as e:
+            print(f"Error reading CSV files: {e}")
+
+        print("Table lengths:", table_lengths)
+        return table_lengths
+    except Exception as e:
+        print(f"Error getting table lengths: {e}", e)
+        print("Error:", e)
+        return {'error': str(e)}
+
+@app.route('/table_lengths')
+def table_lengths():
+    lengths = get_table_lengths()
+    return jsonify(lengths)
+
+@app.route('/kpi_data')
+def get_kpi_data():
+    try:
+        conn = sqlite3.connect(DATABASE)
+        df = pd.read_sql_query("SELECT * FROM workorders", conn)
+        conn.close()
+        
+        # Process data through Dataprocessing function
+        processed_data = Dataprocessing(df.to_dict('records'))
+        if not processed_data:
+            raise ValueError("Data processing failed")
+            
+        # Convert back to DataFrame for calculations
+        processed_df = pd.DataFrame(processed_data)
+        
+        # Calculate KPIs
+        total_workorders = len(processed_df)
+        closed_workorders = len(processed_df[processed_df['Status'] == 'Completed'])
+        waiting_parts = len(processed_df[processed_df['Status'] == 'Wait for Spare Parts'])
+        new_workorders = len(processed_df[processed_df['Status'] == 'Initiated'])
+        
+        closed_percent = round((closed_workorders / total_workorders) * 100) if total_workorders > 0 else 0
+        remaining_percent = round(((total_workorders - closed_workorders) / total_workorders) * 100) if total_workorders > 0 else 0
+        waiting_parts_percent = round((waiting_parts / total_workorders) * 100) if total_workorders > 0 else 0
+
+        # Calculate monthly closed workorders
+        monthly_closed = processed_df[processed_df['Status'] == 'Completed'].groupby('Month').size().to_dict()
+        
+        # Calculate workorders by equipment type
+        work_orders_by_equipment = processed_df['Equipment_Type'].value_counts().to_dict()
+        
+        # Calculate workorders by status
+        work_orders_by_status = processed_df['Status'].value_counts().to_dict()
+        
+        # Calculate workorders by location
+        work_orders_by_location = processed_df['Breakdown_Location'].value_counts().to_dict()
+        
+        # Calculate workorders by cause
+        work_orders_by_cause = processed_df['Failure_Cause'].value_counts().to_dict()
+
+        return jsonify({
+            'total': total_workorders,
+            'closed_percent': closed_percent,
+            'remaining_percent': remaining_percent,
+            'waiting_parts_percent': waiting_parts_percent,
+            'new': new_workorders,
+            'monthly_closed': monthly_closed,
+            'work_orders_by_equipment': work_orders_by_equipment,
+            'work_orders_by_status': work_orders_by_status,
+            'work_orders_by_location': work_orders_by_location,
+            'work_orders_by_cause': work_orders_by_cause
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+if __name__ == '__main__':
+    app.run(debug=True)
